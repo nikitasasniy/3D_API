@@ -1,164 +1,150 @@
-// Функция для загрузки данных графа с API
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'; // Импортируем OrbitControls
+
+// Создаем рендерер
+const renderer = new THREE.WebGLRenderer();
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// Создаем сцену
+const scene = new THREE.Scene();
+
+// Создаем камеру
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 10000);
+camera.position.set(0, 20, 100);
+
+// Создаем контроллер для вращения сцены
+const controls = new OrbitControls(camera, renderer.domElement);
+
+// Массивы для хранения узлов и линий
+const nodes = [];
+const lines = [];
+
+// Функция для получения данных с API
 async function fetchGraphData() {
-    try {
-        const response = await fetch('http://127.0.0.1:8000/graph'); // Путь к вашему API
-        if (!response.ok) {
-            throw new Error('Failed to fetch graph data');
-        }
-        return await response.json(); // Возвращаем данные в формате JSON
-    } catch (error) {
-        console.error('Error fetching graph data:', error);
+  try {
+    const response = await fetch('http://127.0.0.1:8000/graph');
+    if (!response.ok) {
+      throw new Error('Ошибка при получении данных');
     }
+    return await response.json();
+  } catch (error) {
+    console.error('Ошибка при получении данных графа:', error);
+  }
 }
 
-// Функция для визуализации графа с использованием D3.js
-function visualizeGraph(graphData) {
-    const width = 800;
-    const height = 600;
+// Функция для создания графа
+async function createGraph() {
+  const graphData = await fetchGraphData();
 
-    const svg = d3.select('#graph')
-        .append('svg')
-        .attr('width', width)
-        .attr('height', height);
+  if (!graphData) return;
 
-    const links = [];
-    const nodes = [];
-    const nodeIds = new Set();  // Для того чтобы избежать дублирования узлов
+  // Количество узлов
+  const numNodes = graphData.length * 2; // удваиваем количество, так как для каждого пользователя и группы создается по узлу
 
-    // Подготовка данных для D3.js (граф)
-    graphData.forEach(item => {
-        const node = item.node;
-        const targetNode = item.target_node;
+  // Функция для равномерного распределения узлов по пространству
+  function distributeNodes(numNodes) {
+    const nodesArray = [];
+    const maxDist = 30; // Максимальное расстояние для распределения узлов
 
-        // Добавляем узлы, если их еще нет
-        if (!nodeIds.has(node.id)) {
-            nodes.push({ id: node.id, label: node.attributes.name, type: node.label[0] });
-            nodeIds.add(node.id);
-        }
+    for (let i = 0; i < numNodes; i++) {
+      const x = (Math.random() - 0.5) * maxDist * 2;
+      const y = (Math.random() - 0.5) * maxDist * 2;
+      const z = (Math.random() - 0.5) * maxDist * 2;
 
-        if (!nodeIds.has(targetNode.id)) {
-            nodes.push({ id: targetNode.id, label: targetNode.attributes.name, type: targetNode.label[0] });
-            nodeIds.add(targetNode.id);
-        }
-
-        // Добавляем связь между узлами
-        links.push({
-            source: node.id,
-            target: targetNode.id,
-            type: item.relationship.type
-        });
-    });
-
-    // Создание силовой симуляции для графа
-    const simulation = d3.forceSimulation(nodes)
-        .force('link', d3.forceLink(links).id(d => d.id).distance(100))
-        .force('charge', d3.forceManyBody().strength(-200))
-        .force('center', d3.forceCenter(width / 2, height / 2));
-
-    // Создание группы для всех элементов, чтобы они могли быть трансформированы (масштабирование, вращение)
-    const graphGroup = svg.append('g');
-
-    // Визуализация ссылок (линий)
-    const link = graphGroup.selectAll('.link')
-        .data(links)
-        .enter().append('line')
-        .attr('class', 'link')
-        .attr('stroke', '#999')
-        .attr('stroke-width', 2);
-
-    // Визуализация узлов (кругов)
-    const node = graphGroup.selectAll('.node')
-        .data(nodes)
-        .enter().append('circle')
-        .attr('class', 'node')
-        .attr('r', 10)
-        .attr('fill', d => d.type === 'User' ? '#69b3a2' : '#FF5733') // Цвет в зависимости от типа (User или Group)
-        .call(d3.drag()
-            .on('start', dragStart)
-            .on('drag', dragging)
-            .on('end', dragEnd))
-        .on('click', showNodeInfo);  // Обработчик клика на узел
-
-    // Добавление всплывающих подсказок для узлов
-    node.append('title')
-        .text(d => d.label);
-
-    // Обновление положений элементов на экране
-    simulation.on('tick', () => {
-        link.attr('x1', d => d.source.x)
-            .attr('y1', d => d.source.y)
-            .attr('x2', d => d.target.x)
-            .attr('y2', d => d.target.y);
-
-        node.attr('cx', d => d.x)
-            .attr('cy', d => d.y);
-    });
-
-    // Функции для перетаскивания узлов
-    function dragStart(event, d) {
-        if (!event.active) simulation.alphaTarget(0.3).restart();
-        d.fx = d.x;
-        d.fy = d.y;
+      nodesArray.push(new THREE.Vector3(x, y, z));
     }
 
-    function dragging(event, d) {
-        d.fx = event.x;
-        d.fy = event.y;
-    }
+    return nodesArray;
+  }
 
-    function dragEnd(event, d) {
-        if (!event.active) simulation.alphaTarget(0);
-        d.fx = null;
-        d.fy = null;
-    }
+  // Получаем случайно распределенные позиции для узлов
+  const nodePositions = distributeNodes(numNodes);
 
-    // Обработчик масштабирования и перемещения графа
-    const zoom = d3.zoom()
-        .scaleExtent([0.1, 3]) // Определение диапазона масштабирования
-        .on('zoom', (event) => {
-            graphGroup.attr('transform', event.transform); // Применение трансформации
-        });
+  // Сила притяжения для связанного узла
+  const attractionForce = 2;
+  // Сила отталкивания для несвязанного узла
+  const repulsionForce = 1.5;
+  const repulsionDistance = 10;
 
-    svg.call(zoom); // Применение zoom на весь граф
+  // Проходим по данным графа и создаем узлы и связи
+  graphData.forEach((edge, index) => {
+    const userNode = createNode(0xff0000); // Красный для пользователя
+    userNode.position.copy(nodePositions[index * 2]);
+    scene.add(userNode);
+    nodes.push(userNode);
 
-    // Функция для отображения информации о узле
-    function showNodeInfo(event, d) {
-        // Здесь можно отображать информацию в модальном окне, всплывающем окне или другом UI
-        alert(`Node Info:\nID: ${d.id}\nName: ${d.label}\nType: ${d.type}`);
-    }
+    const groupNode = createNode(0x0000ff); // Синий для группы
+    groupNode.position.copy(nodePositions[index * 2 + 1]);
+    scene.add(groupNode);
+    nodes.push(groupNode);
 
-    // Функция для вычисления центра масс
-    function calculateCenterOfMass(nodes) {
-        let x = 0, y = 0;
-        nodes.forEach(node => {
-            x += node.x;
-            y += node.y;
-        });
-        return { x: x / nodes.length, y: y / nodes.length };
-    }
+    // Создаем связь между пользователем и группой
+    const geometry = new THREE.BufferGeometry().setFromPoints([userNode.position, groupNode.position]);
+    const material = new THREE.LineBasicMaterial({ color: 0x888888 });
+    const line = new THREE.Line(geometry, material);
+    scene.add(line);
+    lines.push(line);
 
-    // Вращение вокруг центра масс
-    function rotateGraph(angle) {
-        const center = calculateCenterOfMass(nodes);
-        const radians = angle * Math.PI / 180;
-        nodes.forEach(node => {
-            const dx = node.x - center.x;
-            const dy = node.y - center.y;
-            node.x = center.x + (dx * Math.cos(radians) - dy * Math.sin(radians));
-            node.y = center.y + (dx * Math.sin(radians) + dy * Math.cos(radians));
-        });
+    // Притягиваем узлы, связанные друг с другом
+    applyAttraction(userNode, groupNode, attractionForce);
+  });
 
-        simulation.alpha(1).restart();
-    }
-
-    // Пример использования вращения: вращаем на 10 градусов каждый раз
-    setInterval(() => rotateGraph(10), 1000); // Пример вращения (по 10 градусов каждую секунду)
+  // Применяем отталкивание для всех пар узлов
+  applyRepulsion(nodes, repulsionForce, repulsionDistance);
 }
 
-// Загрузка графа при нажатии на кнопку
-document.getElementById('load-graph-btn').addEventListener('click', async () => {
-    const graphData = await fetchGraphData();
-    if (graphData) {
-        visualizeGraph(graphData);
+// Функция для создания узла
+function createNode(color) {
+  const geometry = new THREE.SphereGeometry(0.5, 16, 16);
+  const material = new THREE.MeshBasicMaterial({ color });
+  const node = new THREE.Mesh(geometry, material);
+  return node;
+}
+
+// Функция для притяжения между двумя узлами
+function applyAttraction(node1, node2, force) {
+  const vector = new THREE.Vector3().subVectors(node2.position, node1.position);
+  const distance = vector.length();
+  if (distance < 5) return; // Убедимся, что узлы не слишком близко
+
+  const direction = vector.normalize();
+  node1.position.add(direction.multiplyScalar(force));
+  node2.position.sub(direction.multiplyScalar(force));
+}
+
+// Функция для отталкивания всех узлов друг от друга
+function applyRepulsion(nodes, force, distanceThreshold) {
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const node1 = nodes[i];
+      const node2 = nodes[j];
+
+      const vector = new THREE.Vector3().subVectors(node2.position, node1.position);
+      const distance = vector.length();
+
+      if (distance < distanceThreshold) {
+        const direction = vector.normalize();
+        node1.position.sub(direction.multiplyScalar(force));
+        node2.position.add(direction.multiplyScalar(force));
+      }
     }
-});
+  }
+}
+
+// Загружаем и строим граф
+createGraph();
+
+// Функция анимации
+function animate() {
+  requestAnimationFrame(animate);
+
+  // Обновляем контроллер
+  controls.update();
+
+  // Отображаем сцену
+  renderer.render(scene, camera);
+}
+
+// Запуск анимации
+animate();
