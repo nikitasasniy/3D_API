@@ -144,7 +144,7 @@ def get_all_nodes():
         headers={"Access-Control-Allow-Origin": "*"}
     )
 
-
+import json
 @app.get("/nodes/{id}")
 def get_node(id: int):
     node = app.state.db.get_node_with_relationships(id)
@@ -154,6 +154,19 @@ def get_node(id: int):
             status_code=404,
             headers={"Access-Control-Allow-Origin": "*"}
         )
+
+    # Преобразуем все frozenset в список
+    def convert_frozenset(obj):
+        if isinstance(obj, frozenset):
+            return list(obj)
+        raise TypeError(f'Object of type {obj.__class__.__name__} is not JSON serializable')
+
+    # Преобразуем данные, если есть frozenset
+    try:
+        node = json.loads(json.dumps(node, default=convert_frozenset))
+    except TypeError as e:
+        print(f"Error serializing: {e}")
+
     return JSONResponse(
         content=node,
         headers={"Access-Control-Allow-Origin": "*"}
